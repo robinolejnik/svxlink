@@ -73,6 +73,8 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include <AsyncAudioPacer.h>
 #include <AsyncAudioDebugger.h>
 #include <AsyncAudioRecorder.h>
+#include <AfskModulator.h>
+#include <AfskDemodulator.h>
 #include <common.h>
 #include <config.h>
 
@@ -91,6 +93,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include "QsoRecorder.h"
 //#include "LinkManager.h"
 #include "DtmfDigitHandler.h"
+#include "FmsSync.h"
 
 
 /****************************************************************************
@@ -174,6 +177,7 @@ Logic::Logic(void)
 {
   rgr_sound_timer.expired.connect(sigc::hide(
         mem_fun(*this, &Logic::sendRgrSound)));
+  responseTimer.expired.connect(sigc::hide(mem_fun(*this, &Logic::responseTimerExpired)));
   logic_con_in = new AudioSplitter;
   logic_con_out = new AudioSelector;
 } /* Logic::Logic */
@@ -431,6 +435,13 @@ bool Logic::initialize(Async::Config& cfgobj, const std::string& logic_name)
   rx_splitter = new AudioSplitter;
   prev_rx_src->registerSink(rx_splitter, true);
   prev_rx_src = 0;
+
+  responseTimer.setTimeout(100);
+  demod = new AfskDemodulator(1800, 1200, 1200);
+  rx_splitter->addSink(demod);
+  sync = new FmsSync(1200, 16000);
+  sync->packetReceived.connect(mem_fun(*this, &Logic::packetReceived));
+  demod->registerSink(sync);
 
     // Create a selector for audio to the module
   audio_to_module_selector = new AudioSelector;
@@ -1835,6 +1846,85 @@ void Logic::cfgUpdated(const std::string& section, const std::string& tag)
     }
   }
 } /* Logic::cfgUpdated */
+
+
+void Logic::responseTimerExpired(void) {
+  responseTimer.setEnable(false);
+  std::cout << "FMS responseTimerExpired();" << std::endl;
+  sendMessage(0);
+}
+
+void Logic::setNibble(std::vector<bool> &bits, unsigned char value, bool invert) {
+  value &= 0xf;
+  if(invert) {
+    bits.push_back((value>>0) & 1);
+    bits.push_back((value>>1) & 1);
+    bits.push_back((value>>2) & 1);
+    bits.push_back((value>>3) & 1);
+  }
+  else {
+    bits.push_back((value>>3) & 1);
+    bits.push_back((value>>2) & 1);
+    bits.push_back((value>>1) & 1);
+    bits.push_back((value>>0) & 1);
+  }
+}
+
+void Logic::sendMessage(uint64_t message) {
+  std::vector<bool> bits;
+
+  for(int i=0;i<36;i++) {
+
+    bits.push_back(false);
+  }
+  unsigned int fms = 0x6902008a;
+  unsigned int status = 0xf;
+  unsigned char bs = 1;
+  unsigned int dir = 1;
+  unsigned int tk = 3;
+
+  tk--;
+  setNibble(bits, 0x7, false);
+  setNibble(bits, 0xf, false);
+  setNibble(bits, 0xf, false);
+  setNibble(bits, 0x1, false);
+  setNibble(bits, 0xa, false);
+
+  setNibble(bits, fms>>28); // BOS
+  setNibble(bits, fms>>24); // Land
+  setNibble(bits, fms>>20); // Ort
+  setNibble(bits, fms>>16); // Ort
+  setNibble(bits, fms>>12); // Kfz
+  setNibble(bits, fms>>8);  // Kfz
+  setNibble(bits, fms>>4);  // Kfz
+  setNibble(bits, fms>>0);  // Kfz
+  setNibble(bits, status);
+  setNibble(bits, (bs<<3) | (dir<<2) | tk, false);
+
+  //0100
+  bits.push_back(false);
+  bits.push_back(true);
+  bits.push_back(false);
+  bits.push_back(false);
+
+  //1100
+  bits.push_back(true);
+  bits.push_back(true);
+  bits.push_back(false);
+  bits.push_back(false);
+
+  //mod->sendBits(bits);
+  //mod->sendBits(bits);
+}
+
+void Logic::packetReceived(uint64_t message) {
+  std::cout << "FMS packetReceived();" << std::endl;
+  if(message==7277623484877635584)
+    return;
+
+  //sendResponse = true;
+  //responseTimer.setEnable(true);
+}
 
 
 /*

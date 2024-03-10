@@ -57,6 +57,10 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #include <LocationInfo.h>
 #include <AsyncAtTimer.h>
 #include <AsyncTimer.h>
+#include <AsyncAudioPacer.h>
+#include <AsyncAudioDebugger.h>
+#include <AfskModulator.h>
+#include <AfskDemodulator.h>
 #include <Tx.h>
 
 
@@ -68,6 +72,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include "LogicBase.h"
 #include "CmdParser.h"
+#include "FmsSync.h"
 
 
 
@@ -319,6 +324,18 @@ class Logic : public LogicBase
                              const std::string &msg);
     void detectedTone(float fq);
     void cfgUpdated(const std::string& section, const std::string& tag);
+
+    void setNibble(std::vector<bool> &bits, unsigned char value, bool invert = true);
+    void packetReceived(uint64_t message);
+    void sendMessage(uint64_t message);
+    void responseTimerExpired(void);
+
+    Async::Timer responseTimer;
+    Async::AudioDebugger *debugger;
+    AfskModulator *mod;
+    AfskDemodulator *demod;
+    FmsSync *sync;
+    bool sendResponse;
 
 };  /* class Logic */
 
